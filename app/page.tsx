@@ -84,9 +84,12 @@ export default function Home() {
 
             // Step 1: Submit appointment
             const appointmentData: AppointmentData = {
+                id: 0,
                 date: appointmentDate,
-                officeId: parseInt(officeId),
                 durationId: selectedOffice.durationId,
+                dateTimeFormat: "yyyy-MM-dd",
+                noOfApplicants: 1,
+                officeId: parseInt(officeId),
                 requestTypeId: 2,
                 isUrgent: true,
                 processDays: 2
@@ -97,17 +100,63 @@ export default function Home() {
 
             // Step 2: Submit request
             const requestData: RequestData = {
+                requestId: 0,
+                requestMode: 1,
+                processDays: 2,
                 officeId: parseInt(officeId),
                 deliverySiteId: selectedOffice.deliverySiteId,
                 requestTypeId: 2,
                 appointmentIds: [appointmentId],
+                userName: "",
+                deliveryDate: "",
+                status: 0,
+                confirmationNumber: "",
                 applicants: [{
-                    ...userData,
+                    personId: 0,
+                    firstName: userData.firstName,
+                    middleName: userData.middleName,
+                    lastName: userData.lastName,
+                    geezFirstName: userData.geezFirstName,
+                    geezMiddleName: userData.geezMiddleName,
+                    geezLastName: userData.geezLastName,
+                    dateOfBirth: userData.birthDate,
+                    gender: +userData.gender,
+                    nationalityId: 1,
+                    height: "",
+                    eyeColor: "",
+                    hairColor: "Black",
+                    occupationId: null,
+                    birthPlace: userData.birthplace,
+                    birthCertificateId: "",
+                    photoPath: "",
+                    employeeID: "",
+                    applicationNumber: "",
+                    organizationID: "",
+                    isUnder18: false,
+                    isAdoption: false,
+                    passportNumber: "",
+                    isDatacorrected: false,
+                    passportPageId: 1,
+                    correctionType: 0,
+                    maritalStatus: 0,
+                    phoneNumber: userData.phone,
+                    email: userData.email || "",
+                    requestReason: 0,
                     address: {
+                        personId: 0,
+                        addressId: 0,
                         city: selectedOffice.city,
                         region: selectedOffice.region,
-                        poBox: "0000"
-                    }
+                        state: "",
+                        zone: "",
+                        wereda: "",
+                        kebele: "",
+                        street: "",
+                        houseNo: "",
+                        poBox: "0000",
+                        requestPlace: ""
+                    },
+                    familyRequests: []
                 }]
             };
             const requestResponse = await passportService.submitRequest(requestData);
@@ -116,13 +165,15 @@ export default function Home() {
             const paymentData: PaymentData = {
                 FirstName: userData.firstName,
                 LastName: userData.lastName,
-                Email: userData.email || '',
+                Email: userData.email || "",
                 Phone: userData.phone,
                 Amount: 20000,
                 Currency: "ETB",
                 City: selectedOffice.city,
                 Country: "ET",
-                Channel: "Mobile"
+                Channel: "Mobile",
+                PaymentOptionsId: 17,
+                requestId: requestResponse.serviceResponseList[0].requestId
             };
             await passportService.processPayment(paymentData);
 
