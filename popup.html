@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EP API Automation</title>
+    <style>
+        body {
+            width: 300px;
+            padding: 15px;
+            font-family: Arial, sans-serif;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="date"], input[type="file"], select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+            display: none;
+        }
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+        .auto-click-section {
+            margin-top: 5px;
+            border-top: 1px solid #ddd;
+        }
+        .auto-click-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .auto-click-button {
+            background-color: #2196F3;
+            font-size: 12px;
+            padding: 8px;
+        }
+        .auto-click-button:hover {
+            background-color: #1976D2;
+        }
+        #autoClickStatus {
+            margin-top: 10px;
+            text-align: center;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="form-group">
+        <input type="date" id="appointmentDate" required>
+    </div>
+    <div class="form-group">
+        <select id="officeLocation" required>
+            <option value="24">Addis Ababa</option>
+            <option value="28">Hawassa</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <input type="file" id="userJsonFile" accept=".json" required>
+    </div>
+    <button id="start">Start Automation</button>
+    <div id="status"></div>
+    <div id="orderId" style="margin-top: 10px; padding: 10px; border-radius: 4px; display: none; background-color: #e8f5e9; color: #2e7d32; white-space: pre-line;"></div>
+
+    <div class="auto-click-section">
+        <div class="auto-click-buttons">
+            <button id="autoClick5s" class="auto-click-button">Auto-Click (5s)</button>
+            <button id="autoClick10s" class="auto-click-button">Auto-Click (10s)</button>
+            <button id="autoClick15s" class="auto-click-button">Auto-Click (15s)</button>
+            <button id="autoClick20s" class="auto-click-button">Auto-Click (20s)</button>
+        </div>
+        <div id="autoClickStatus"></div>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>
