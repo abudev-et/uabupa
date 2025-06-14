@@ -195,9 +195,13 @@ export default function Home() {
         } catch (error: any) {
             console.error('Submission error:', error);
             setErrorMessage(error.message || 'An error occurred while processing your request');
-            toast.error(error.message || 'An error occurred while processing your request', {
+            toast({
+                title: 'Error',
+                description: error.message || 'An error occurred while processing your request',
+                status: 'error',
                 duration: 5000,
-                position: 'top-center',
+                position: 'top',
+                isClosable: true,
             });
         } finally {
             setIsLoading(false);
