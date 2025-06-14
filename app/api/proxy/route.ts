@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const BASE_URL = 'https://ethiopianpassportapiu.ethiopianairlines.com';
+const PAYMENT_BASE_URL = 'https://ethiopianpassportapi.ethiopianairlines.com';
 const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJKV1RfQ1VSUkVOVF9VU0VSIjoiQW5vbnltb3VzQGV0aGlvcGlhbmFpcmxpbmVzLmNvbSIsIm5iZiI6MTczMjA4MjQzNSwiZXhwIjoxNzQyNDUwNDM1LCJpYXQiOjE3MzIwODI0MzV9.9trNDDeFAMR6ByGB5Hhv8k5Q-16RGpPuGKmCpw95niY';
 
 // Common headers for all requests
@@ -11,6 +12,12 @@ const commonHeaders = {
     'content-type': 'application/json;charset=UTF-8',
     'origin': 'https://www.ethiopianpassportservices.gov.et',
     'referer': 'https://www.ethiopianpassportservices.gov.et/',
+    'sec-ch-ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'cross-site'
 };
 
 // CORS headers for responses
@@ -48,8 +55,11 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        // Determine which base URL to use based on the endpoint
+        const baseUrl = endpoint.includes('/Payment/') ? PAYMENT_BASE_URL : BASE_URL;
+
         // Forward the request to the actual API
-        const response = await fetch(`${BASE_URL}${endpoint}`, {
+        const response = await fetch(`${baseUrl}${endpoint}`, {
             method: 'POST',
             headers: commonHeaders,
             body: JSON.stringify(data),
