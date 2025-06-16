@@ -36,6 +36,9 @@ export default function Home() {
     const [error, setError] = useState<string | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [isAutoClicking, setIsAutoClicking] = useState(false);
+    const [orderId, setOrderId] = useState<string | null>(null);
+    const [requestId, setRequestId] = useState<string | null>(null);
+    const [appointmentId, setAppointmentId] = useState<string | null>(null);
     const clickIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
     const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -81,8 +84,11 @@ export default function Home() {
             setError(null);
 
             const selectedOffice = offices.find(o => o.id === parseInt(officeId))!;
+            let appointmentId;
+            let requestResponse;
 
             // Step 1: Submit appointment
+            console.log('Starting appointment submission...');
             const appointmentData: AppointmentData = {
                 id: 0,
                 date: appointmentDate,
@@ -95,10 +101,31 @@ export default function Home() {
                 processDays: 2
             };
 
-            const appointmentResponse = await passportService.submitAppointment(appointmentData);
-            const appointmentId = appointmentResponse.data.appointmentResponses[0].id;
+            const appointmentResponse = await fetch('/api/proxy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    endpoint: '/Schedule/api/V1.0/Schedule/SubmitAppointment',
+                    data: appointmentData
+                })
+            }).then(res => res.json());
 
-            // Step 2: Submit request
+            if (!appointmentResponse?.appointmentResponses?.[0]?.id) {
+                throw new Error('Invalid appointment response format');
+            }
+
+            appointmentId = appointmentResponse.appointmentResponses[0].id;
+            setAppointmentId(appointmentId);
+            toast({
+                title: 'Appointment Submitted',
+                description: `Appointment ID: ${appointmentId}`,
+                status: 'success',
+                duration: 3000,
+                isClosable: true,
+            });
+
+            // Step 2: Submit request immediately after appointment
+            console.log('Starting request submission...');
             const requestData: RequestData = {
                 requestId: 0,
                 requestMode: 1,
@@ -159,9 +186,32 @@ export default function Home() {
                     familyRequests: []
                 }]
             };
-            const requestResponse = await passportService.submitRequest(requestData);
 
-            // Step 3: Process payment
+            requestResponse = await fetch('/api/proxy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    endpoint: '/Request/api/V1.0/Request/SubmitRequest',
+                    data: requestData
+                })
+            }).then(res => res.json());
+
+            if (!requestResponse?.serviceResponseList?.[0]?.requestId) {
+                throw new Error('Invalid request response format');
+            }
+
+            const requestId = requestResponse.serviceResponseList[0].requestId;
+            setRequestId(requestId);
+            toast({
+                title: 'Request Submitted',
+                description: `Request ID: ${requestId}`,
+                status: 'success',
+                duration: 3000,
+                isClosable: true,
+            });
+
+            // Step 3: Process payment immediately after request
+            console.log('Starting payment processing...');
             const paymentData: PaymentData = {
                 FirstName: userData.firstName,
                 LastName: userData.lastName,
@@ -173,17 +223,28 @@ export default function Home() {
                 Country: "ET",
                 Channel: "Mobile",
                 PaymentOptionsId: 17,
-                requestId: requestResponse.serviceResponseList[0].requestId
+                requestId: requestId
             };
-            await passportService.processPayment(paymentData);
 
-            toast({
-                title: 'Success',
-                description: 'Your passport application has been submitted successfully!',
-                status: 'success',
-                duration: 5000,
-                isClosable: true,
-            });
+            const paymentResponse = await fetch('/api/proxy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    endpoint: '/Payment/api/V1.0/Payment/OrderRequest',
+                    data: paymentData
+                })
+            }).then(res => res.json());
+
+            if (paymentResponse?.orderId) {
+                setOrderId(paymentResponse.orderId);
+                toast({
+                    title: 'Payment Successful',
+                    description: `Order ID: ${paymentResponse.orderId}`,
+                    status: 'success',
+                    duration: 5000,
+                    isClosable: true,
+                });
+            }
 
             // Reset form
             setUserData(null);
@@ -192,6 +253,7 @@ export default function Home() {
             if (e.target instanceof HTMLInputElement) {
                 e.target.value = '';
             }
+
         } catch (error: any) {
             console.error('Submission error:', error);
             setErrorMessage(error.message || 'An error occurred while processing your request');
@@ -252,6 +314,35 @@ export default function Home() {
                         Upload your JSON file and complete the application process
                     </Text>
                 </Box>
+
+                {/* Status Cards */}
+                {(appointmentId || requestId || orderId) && (
+                    <Card>
+                        <CardBody>
+                            <Stack spacing={4}>
+                                <Heading size="md">Application Status</Heading>
+                                {appointmentId && (
+                                    <Box p={3} bg="green.50" borderRadius="md">
+                                        <Text fontWeight="bold" color="green.600">✓ Appointment Submitted</Text>
+                                        <Text fontSize="sm">ID: {appointmentId}</Text>
+                                    </Box>
+                                )}
+                                {requestId && (
+                                    <Box p={3} bg="green.50" borderRadius="md">
+                                        <Text fontWeight="bold" color="green.600">✓ Request Submitted</Text>
+                                        <Text fontSize="sm">ID: {requestId}</Text>
+                                    </Box>
+                                )}
+                                {orderId && (
+                                    <Box p={3} bg="green.50" borderRadius="md">
+                                        <Text fontWeight="bold" color="green.600">✓ Payment Successful</Text>
+                                        <Text fontSize="sm">Order ID: {orderId}</Text>
+                                    </Box>
+                                )}
+                            </Stack>
+                        </CardBody>
+                    </Card>
+                )}
 
                 {/* Error Alert */}
                 {errorMessage && (

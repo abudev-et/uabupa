@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const BASE_URL = 'https://ethiopianpassportapiu.ethiopianairlines.com';
-const PAYMENT_BASE_URL = 'https://ethiopianpassportapi.ethiopianairlines.com';
-const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJKV1RfQ1VSUkVOVF9VU0VSIjoiQW5vbnltb3VzQGV0aGlvcGlhbmFpcmxpbmVzLmNvbSIsIm5iZiI6MTczMjA4MjQzNSwiZXhwIjoxNzQyNDUwNDM1LCJpYXQiOjE3MzIwODI0MzV9.9trNDDeFAMR6ByGB5Hhv8k5Q-16RGpPuGKmCpw95niY';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+const AUTH_TOKEN = process.env.NEXT_PUBLIC_API_AUTH_TOKEN;
+
+if (!BASE_URL || !AUTH_TOKEN) {
+    throw new Error('Missing required environment variables');
+}
 
 // Common headers for all requests
 const commonHeaders = {
     'accept': 'application/json, text/plain, */*',
     'accept-language': 'en-US,en;q=0.9',
-    'authorization': `Bearer ${API_TOKEN}`,
+    'authorization': `Bearer ${AUTH_TOKEN}`,
     'content-type': 'application/json;charset=UTF-8',
     'origin': 'https://www.ethiopianpassportservices.gov.et',
     'referer': 'https://www.ethiopianpassportservices.gov.et/',
@@ -55,16 +58,17 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Determine which base URL to use based on the endpoint
-        const baseUrl = endpoint.includes('/Payment/') ? PAYMENT_BASE_URL : BASE_URL;
-
         // Forward the request to the actual API
-        const response = await fetch(`${baseUrl}${endpoint}`, {
+        const response = await fetch(`${BASE_URL}${endpoint}`, {
             method: 'POST',
             headers: commonHeaders,
             body: JSON.stringify(data),
             cache: 'no-store',
         });
+
+        if (!response.ok) {
+            throw new Error(`API request failed: ${response.statusText}`);
+        }
 
         // Get the response data
         const responseData = await response.json();
@@ -74,7 +78,7 @@ export async function POST(request: NextRequest) {
             status: response.status,
             headers: corsHeaders
         });
-    } catch (error) {
+    } catch (error: any) {
         console.error('Proxy error:', error);
         
         // Handle different types of errors
@@ -90,7 +94,7 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json(
             { 
-                error: 'Failed to process request',
+                error: error.message,
                 details: error instanceof Error ? error.message : 'Unknown error'
             },
             { 
