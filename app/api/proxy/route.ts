@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-const AUTH_TOKEN = process.env.NEXT_PUBLIC_API_AUTH_TOKEN;
+const SCHEDULE_BASE_URL = 'https://ethiopianpassportapiu.ethiopianairlines.com';
+const PAYMENT_BASE_URL = 'https://ethiopianpassportapi.ethiopianairlines.com';
+const AUTH_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJKV1RfQ1VSUkVOVF9VU0VSIjoiQW5vbnltb3VzQGV0aGlvcGlhbmFpcmxpbmVzLmNvbSIsIm5iZiI6MTczMjA4MjQzNSwiZXhwIjoxNzQyNDUwNDM1LCJpYXQiOjE3MzIwODI0MzV9.9trNDDeFAMR6ByGB5Hhv8k5Q-16RGpPuGKmCpw95niY';
 
-if (!BASE_URL || !AUTH_TOKEN) {
-    throw new Error('Missing required environment variables');
-}
-
-// Common headers for all requests
+// Common headers for all requests - exactly matching content.js
 const commonHeaders = {
     'accept': 'application/json, text/plain, */*',
     'accept-language': 'en-US,en;q=0.9',
@@ -30,87 +27,95 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
+// Enhanced fetch function with retry logic from content.js
+async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3) {
+    let lastError;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            console.log(`Attempt ${attempt} for ${url}`);
+            const response = await fetch(url, {
+                ...options,
+                headers: {
+                    ...commonHeaders,
+                    ...options.headers
+                },
+                credentials: 'include'
+            });
+            
+            const responseText = await response.text();
+            console.log(`Response from ${url}:`, responseText);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}, message: ${responseText}`);
+            }
+            
+            try {
+                return JSON.parse(responseText);
+            } catch (e) {
+                console.error('Failed to parse JSON response:', e);
+                throw new Error('Invalid JSON response from server');
+            }
+        } catch (error) {
+            console.error(`Attempt ${attempt} failed:`, error);
+            lastError = error;
+            
+            if (attempt < maxRetries) {
+                const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+                console.log(`Waiting ${delay}ms before retry...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+    
+    throw lastError;
+}
+
 export async function POST(request: NextRequest) {
     try {
-        // Parse the request body
         const body = await request.json();
         const { endpoint, data } = body;
 
-        // Validate endpoint
-        if (!endpoint) {
-            return NextResponse.json(
-                { error: 'Endpoint is required' },
-                { 
-                    status: 400,
-                    headers: corsHeaders
-                }
-            );
+        // Determine which base URL to use
+        let fullUrl = endpoint;
+        if (endpoint.startsWith('/')) {
+            // For relative URLs, use the appropriate base URL
+            if (endpoint.includes('/Payment/')) {
+                fullUrl = `${PAYMENT_BASE_URL}${endpoint}`;
+            } else {
+                fullUrl = `${SCHEDULE_BASE_URL}${endpoint}`;
+            }
         }
 
-        // Validate data
-        if (!data) {
-            return NextResponse.json(
-                { error: 'Request data is required' },
-                { 
-                    status: 400,
-                    headers: corsHeaders
-                }
-            );
+        console.log('Making request to:', fullUrl);
+        console.log('Request data:', data);
+
+        // Add delay for payment requests
+        if (fullUrl.includes('/Payment/')) {
+            console.log('Waiting 3 seconds before payment request...');
+            await new Promise(resolve => setTimeout(resolve, 3000));
         }
 
-        // Forward the request to the actual API
-        const response = await fetch(`${BASE_URL}${endpoint}`, {
+        const response = await fetchWithRetry(fullUrl, {
             method: 'POST',
-            headers: commonHeaders,
-            body: JSON.stringify(data),
-            cache: 'no-store',
+            body: JSON.stringify(data)
         });
 
-        if (!response.ok) {
-            throw new Error(`API request failed: ${response.statusText}`);
-        }
+        console.log('Response:', response);
+        return NextResponse.json(response, { headers: corsHeaders });
 
-        // Get the response data
-        const responseData = await response.json();
-
-        // Return the response with CORS headers
-        return NextResponse.json(responseData, {
-            status: response.status,
-            headers: corsHeaders
-        });
     } catch (error: any) {
         console.error('Proxy error:', error);
-        
-        // Handle different types of errors
-        if (error instanceof SyntaxError) {
-            return NextResponse.json(
-                { error: 'Invalid JSON in request body' },
-                { 
-                    status: 400,
-                    headers: corsHeaders
-                }
-            );
-        }
-
         return NextResponse.json(
-            { 
-                error: error.message,
-                details: error instanceof Error ? error.message : 'Unknown error'
-            },
-            { 
-                status: 500,
-                headers: corsHeaders
-            }
+            { error: error.message || 'Proxy error' },
+            { status: 500, headers: corsHeaders }
         );
     }
 }
 
 // Handle OPTIONS requests for CORS preflight
 export async function OPTIONS() {
-    return new NextResponse(null, {
-        status: 204,
-        headers: corsHeaders
-    });
+    return NextResponse.json({}, { headers: corsHeaders });
 }
 
 // Handle GET requests (for testing the proxy)

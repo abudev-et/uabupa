@@ -27,6 +27,32 @@ import { offices } from './config/offices';
 import { passportService } from './services/api';
 import { UserData, AppointmentData, RequestData, PaymentData } from './types';
 
+interface PaymentRequestData {
+    FirstName: string;
+    LastName: string;
+    Email: string;
+    Phone: string;
+    Amount: number;
+    Currency: string;
+    City: string;
+    Country: string;
+    Channel: string;
+    PaymentOptionsId: number;
+    requestId: number;
+}
+
+interface PaymentResponse {
+    orderId?: string;
+    [key: string]: any;
+}
+
+interface RequestResponse {
+    serviceResponseList: Array<{
+        requestId: number;
+        [key: string]: any;
+    }>;
+}
+
 export default function Home() {
     const toast = useToast();
     const [isLoading, setIsLoading] = useState(false);
@@ -72,24 +98,19 @@ export default function Home() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setErrorMessage(null);
+        if (!userData || !appointmentDate || !officeId) return;
 
-        if (!userData || !appointmentDate || !officeId) {
-            setError('Please provide all required information');
-            return;
-        }
+        setIsLoading(true);
+        setErrorMessage('');
+        let appointmentId = '';
+        let requestResponse: any = null;
 
         try {
-            setIsLoading(true);
-            setError(null);
-
             const selectedOffice = offices.find(o => o.id === parseInt(officeId))!;
-            let appointmentId;
-            let requestResponse;
 
             // Step 1: Submit appointment
             console.log('Starting appointment submission...');
-            const appointmentData: AppointmentData = {
+            const appointmentData = {
                 id: 0,
                 date: appointmentDate,
                 durationId: selectedOffice.durationId,
@@ -101,31 +122,78 @@ export default function Home() {
                 processDays: 2
             };
 
+            console.log('Appointment request data:', appointmentData);
             const appointmentResponse = await fetch('/api/proxy', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
                 body: JSON.stringify({
                     endpoint: '/Schedule/api/V1.0/Schedule/SubmitAppointment',
                     data: appointmentData
                 })
-            }).then(res => res.json());
+            });
 
-            if (!appointmentResponse?.appointmentResponses?.[0]?.id) {
+            console.log('Appointment response status:', appointmentResponse.status);
+            const appointmentResult = await appointmentResponse.json();
+            console.log('Appointment response data:', appointmentResult);
+
+            if (!appointmentResult?.appointmentResponses?.[0]?.id) {
+                console.error('Invalid appointment response:', appointmentResult);
                 throw new Error('Invalid appointment response format');
             }
 
-            appointmentId = appointmentResponse.appointmentResponses[0].id;
+            appointmentId = appointmentResult.appointmentResponses[0].id.toString();
             setAppointmentId(appointmentId);
-            toast({
-                title: 'Appointment Submitted',
-                description: `Appointment ID: ${appointmentId}`,
-                status: 'success',
-                duration: 3000,
-                isClosable: true,
-            });
 
-            // Step 2: Submit request immediately after appointment
-            console.log('Starting request submission...');
+            // Add delay after appointment
+            console.log('Waiting 3 seconds after appointment...');
+            await new Promise(resolve => setTimeout(resolve, 3000));
+
+            // Function to submit request with immediate retry
+            const submitRequestWithRetry = async (requestData: RequestData, maxRetries = 4): Promise<RequestResponse> => {
+                let lastError;
+                
+                for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                    try {
+                        console.log(`Submit request attempt ${attempt} of ${maxRetries}`);
+                        const response = await fetch('/api/proxy', {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                endpoint: '/Request/api/V1.0/Request/SubmitRequest',
+                                data: requestData
+                            })
+                        });
+
+                        const result = await response.json() as RequestResponse;
+                        console.log(`Request attempt ${attempt} response:`, result);
+
+                        if (result?.serviceResponseList?.[0]?.requestId) {
+                            console.log(`Request successful on attempt ${attempt}`);
+                            return result; // Return immediately on success
+                        } else {
+                            throw new Error('No request ID in response');
+                        }
+                    } catch (error) {
+                        console.error(`Request attempt ${attempt} failed:`, error);
+                        lastError = error;
+                        
+                        // No delay between retries - try immediately
+                        if (attempt === maxRetries) {
+                            throw lastError || new Error('All request attempts failed');
+                        }
+                    }
+                }
+                
+                throw lastError || new Error('All request attempts failed');
+            };
+
+            // Step 2: Submit request with immediate retry
             const requestData: RequestData = {
                 requestId: 0,
                 requestMode: 1,
@@ -133,7 +201,7 @@ export default function Home() {
                 officeId: parseInt(officeId),
                 deliverySiteId: selectedOffice.deliverySiteId,
                 requestTypeId: 2,
-                appointmentIds: [appointmentId],
+                appointmentIds: [parseInt(appointmentId)],
                 userName: "",
                 deliveryDate: "",
                 status: 0,
@@ -167,7 +235,7 @@ export default function Home() {
                     correctionType: 0,
                     maritalStatus: 0,
                     phoneNumber: userData.phone,
-                    email: userData.email || "",
+                    email: "",
                     requestReason: 0,
                     address: {
                         personId: 0,
@@ -187,71 +255,75 @@ export default function Home() {
                 }]
             };
 
-            requestResponse = await fetch('/api/proxy', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    endpoint: '/Request/api/V1.0/Request/SubmitRequest',
-                    data: requestData
-                })
-            }).then(res => res.json());
-
-            if (!requestResponse?.serviceResponseList?.[0]?.requestId) {
-                throw new Error('Invalid request response format');
-            }
+            console.log('Starting request submission with immediate retry...');
+            const requestResponse = await submitRequestWithRetry(requestData);
+            console.log('Final request result:', requestResponse);
 
             const requestId = requestResponse.serviceResponseList[0].requestId;
-            setRequestId(requestId);
-            toast({
-                title: 'Request Submitted',
-                description: `Request ID: ${requestId}`,
-                status: 'success',
-                duration: 3000,
-                isClosable: true,
-            });
+            setRequestId(requestId.toString());
+            console.log('Successfully got request ID:', requestId);
 
-            // Step 3: Process payment immediately after request
-            console.log('Starting payment processing...');
-            const paymentData: PaymentData = {
+            // Add delay before payment
+            console.log('Waiting 3 seconds before payment request...');
+            await new Promise(resolve => setTimeout(resolve, 3000));
+
+            // Step 3: Process payment (matching content.js exactly)
+            const paymentData: PaymentRequestData = {
                 FirstName: userData.firstName,
                 LastName: userData.lastName,
-                Email: userData.email || "",
+                Email: "",
                 Phone: userData.phone,
                 Amount: 20000,
                 Currency: "ETB",
-                City: selectedOffice.city,
+                City: "Addis Ababa",
                 Country: "ET",
                 Channel: "Mobile",
                 PaymentOptionsId: 17,
                 requestId: requestId
             };
 
-            const paymentResponse = await fetch('/api/proxy', {
+            console.log('Payment data:', paymentData);
+            const paymentRes = await fetch('/api/proxy', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
                 body: JSON.stringify({
                     endpoint: '/Payment/api/V1.0/Payment/OrderRequest',
                     data: paymentData
                 })
-            }).then(res => res.json());
+            });
+
+            const paymentResponse = await paymentRes.json();
+            console.log('Payment response:', paymentResponse);
 
             if (paymentResponse?.orderId) {
                 setOrderId(paymentResponse.orderId);
+                if (typeof window !== 'undefined' && window.parent) {
+                    window.parent.postMessage({
+                        type: 'orderId',
+                        orderId: paymentResponse.orderId
+                    }, '*');
+                }
+                // Show success notification
                 toast({
-                    title: 'Payment Successful',
+                    title: 'Request submitted successfully!',
                     description: `Order ID: ${paymentResponse.orderId}`,
                     status: 'success',
                     duration: 5000,
                     isClosable: true,
                 });
+            } else {
+                throw new Error('No order ID received from payment response');
             }
 
             // Reset form
             setUserData(null);
             setAppointmentDate('');
             setOfficeId('24');
-            if (e.target instanceof HTMLInputElement) {
-                e.target.value = '';
+            if (e.target instanceof HTMLFormElement) {
+                e.target.reset();
             }
 
         } catch (error: any) {
@@ -262,7 +334,6 @@ export default function Home() {
                 description: error.message || 'An error occurred while processing your request',
                 status: 'error',
                 duration: 5000,
-                position: 'top',
                 isClosable: true,
             });
         } finally {
