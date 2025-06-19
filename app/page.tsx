@@ -1,431 +1,182 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import {
-    Box,
-    Container,
-    Button,
-    VStack,
-    Heading,
-    Text,
-    useToast,
-    FormControl,
-    FormLabel,
-    Input,
-    Select,
-    Card,
-    CardBody,
-    Stack,
-    StackDivider,
-    useColorModeValue,
-    Alert,
-    AlertIcon,
-    AlertTitle,
-    AlertDescription,
-} from '@chakra-ui/react';
-import { offices } from './config/offices';
-import { passportService } from './services/api';
-import { UserData, AppointmentData, RequestData, PaymentData } from './types';
+import { VStack, Box, Container, Button, Heading, Text, useToast, FormControl, FormLabel, Input, Select, Alert, AlertIcon, AlertTitle, AlertDescription, Divider, Card } from '@chakra-ui/react';
+import { usePassportForm } from './services/usePassportForm';
+import { useState } from 'react';
+import { submitAppointment, submitRequest, submitPayment } from './services/passport-api';
 
-interface PaymentRequestData {
-    FirstName: string;
-    LastName: string;
-    Email: string;
-    Phone: string;
-    Amount: number;
-    Currency: string;
-    City: string;
-    Country: string;
-    Channel: string;
-    PaymentOptionsId: number;
-    requestId: number;
-}
-
-interface PaymentResponse {
-    orderId?: string;
-    [key: string]: any;
-}
-
-interface RequestResponse {
-    serviceResponseList: Array<{
-        requestId: number;
-        [key: string]: any;
-    }>;
-}
+// Inline office data (example, replace with your own)
+const offices = [
+    { id: 24, name: 'Main Office', city: 'Addis Ababa', durationId: 781, deliverySiteId: 1 },
+    { id: 28, name: 'Hawassa', city: 'Hawassa', durationId: 941, deliverySiteId: 16 },
+    { id: 34, name: 'Dire Dawa', city: 'Dire Dawa', durationId: 1167, deliverySiteId: 14 },
+    { id: 32, name: 'Adama', city: 'Adama', durationId: 1061, deliverySiteId: 12 },
+];
 
 export default function Home() {
-    const toast = useToast();
-    const [isLoading, setIsLoading] = useState(false);
-    const [appointmentDate, setAppointmentDate] = useState('');
-    const [officeId, setOfficeId] = useState('24');
-    const [userData, setUserData] = useState<UserData | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
-    const [isAutoClicking, setIsAutoClicking] = useState(false);
-    const [orderId, setOrderId] = useState<string | null>(null);
-    const [requestId, setRequestId] = useState<string | null>(null);
-    const [appointmentId, setAppointmentId] = useState<string | null>(null);
-    const clickIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const {
+        isLoading,
+        appointmentDate,
+        setAppointmentDate,
+        officeId,
+        setOfficeId,
+        userData,
+        errorMessage,
+        orderId,
+        requestId,
+        appointmentId,
+        handleFileUpload,
+        handleSubmit,
+    } = usePassportForm(offices);
 
-    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
+    const [multiCount, setMultiCount] = useState(20);
+    const [multiResults, setMultiResults] = useState<any[]>([]);
+    const [multiSummary, setMultiSummary] = useState<{ success: number; fail: number }>({ success: 0, fail: 0 });
 
-        try {
-            const fileText = await readFileAsText(file);
-            const parsedData = JSON.parse(fileText);
-            
-            if (!Array.isArray(parsedData) || parsedData.length === 0) {
-                throw new Error('Invalid JSON format. Expected an array with at least one user.');
-            }
-
-            setUserData(parsedData[0]);
-            setError(null);
-        } catch (error) {
-            setError(error instanceof Error ? error.message : 'Failed to parse JSON file');
-            setUserData(null);
-        }
-    };
-
-    const readFileAsText = (file: File): Promise<string> => {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = event => resolve(event.target?.result as string);
-            reader.onerror = error => reject(error);
-            reader.readAsText(file);
-        });
-    };
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!userData || !appointmentDate || !officeId) return;
-
-        setIsLoading(true);
-        setErrorMessage('');
-        let appointmentId = '';
-        let requestResponse: any = null;
-
-        try {
-            const selectedOffice = offices.find(o => o.id === parseInt(officeId))!;
-
-            // Step 1: Submit appointment
-            console.log('Starting appointment submission...');
-            const appointmentData = {
-                id: 0,
-                date: appointmentDate,
-                durationId: selectedOffice.durationId,
-                dateTimeFormat: "yyyy-MM-dd",
-                noOfApplicants: 1,
-                officeId: parseInt(officeId),
-                requestTypeId: 2,
-                isUrgent: true,
-                processDays: 2
-            };
-
-            console.log('Appointment request data:', appointmentData);
-            const appointmentResponse = await fetch('/api/proxy', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({
-                    endpoint: '/Schedule/api/V1.0/Schedule/SubmitAppointment',
-                    data: appointmentData
-                })
-            });
-
-            console.log('Appointment response status:', appointmentResponse.status);
-            const appointmentResult = await appointmentResponse.json();
-            console.log('Appointment response data:', appointmentResult);
-
-            if (!appointmentResult?.appointmentResponses?.[0]?.id) {
-                console.error('Invalid appointment response:', appointmentResult);
-                throw new Error('Invalid appointment response format');
-            }
-
-            appointmentId = appointmentResult.appointmentResponses[0].id.toString();
-            setAppointmentId(appointmentId);
-
-            // Add delay after appointment
-            console.log('Waiting 3 seconds after appointment...');
-            await new Promise(resolve => setTimeout(resolve, 3000));
-
-            // Function to submit request with immediate retry
-            const submitRequestWithRetry = async (requestData: RequestData, maxRetries = 4): Promise<RequestResponse> => {
-                let lastError;
-                
-                for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                    try {
-                        console.log(`Submit request attempt ${attempt} of ${maxRetries}`);
-                        const response = await fetch('/api/proxy', {
-                            method: 'POST',
-                            headers: { 
-                                'Content-Type': 'application/json',
-                                'Accept': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                endpoint: '/Request/api/V1.0/Request/SubmitRequest',
-                                data: requestData
-                            })
-                        });
-
-                        const result = await response.json() as RequestResponse;
-                        console.log(`Request attempt ${attempt} response:`, result);
-
-                        if (result?.serviceResponseList?.[0]?.requestId) {
-                            console.log(`Request successful on attempt ${attempt}`);
-                            return result; // Return immediately on success
-                        } else {
-                            throw new Error('No request ID in response');
-                        }
-                    } catch (error) {
-                        console.error(`Request attempt ${attempt} failed:`, error);
-                        lastError = error;
-                        
-                        // No delay between retries - try immediately
-                        if (attempt === maxRetries) {
-                            throw lastError || new Error('All request attempts failed');
-                        }
-                    }
-                }
-                
-                throw lastError || new Error('All request attempts failed');
-            };
-
-            // Step 2: Submit request with immediate retry
-            const requestData: RequestData = {
-                requestId: 0,
-                requestMode: 1,
-                processDays: 2,
-                officeId: parseInt(officeId),
-                deliverySiteId: selectedOffice.deliverySiteId,
-                requestTypeId: 2,
-                appointmentIds: [parseInt(appointmentId)],
-                userName: "",
-                deliveryDate: "",
-                status: 0,
-                confirmationNumber: "",
-                applicants: [{
-                    personId: 0,
-                    firstName: userData.firstName,
-                    middleName: userData.middleName,
-                    lastName: userData.lastName,
-                    geezFirstName: userData.geezFirstName,
-                    geezMiddleName: userData.geezMiddleName,
-                    geezLastName: userData.geezLastName,
-                    dateOfBirth: userData.birthDate,
-                    gender: +userData.gender,
-                    nationalityId: 1,
-                    height: "",
-                    eyeColor: "",
-                    hairColor: "Black",
-                    occupationId: null,
-                    birthPlace: userData.birthplace,
-                    birthCertificateId: "",
-                    photoPath: "",
-                    employeeID: "",
-                    applicationNumber: "",
-                    organizationID: "",
-                    isUnder18: false,
-                    isAdoption: false,
-                    passportNumber: "",
-                    isDatacorrected: false,
-                    passportPageId: 1,
-                    correctionType: 0,
-                    maritalStatus: 0,
-                    phoneNumber: userData.phone,
-                    email: "",
-                    requestReason: 0,
-                    address: {
+    // Helper for multiple requests
+    async function handleMultipleRequests() {
+        setMultiResults([]);
+        setMultiSummary({ success: 0, fail: 0 });
+        const results: any[] = [];
+        const promises = Array.from({ length: multiCount }, async (_, i) => {
+            try {
+                // Use the same logic as handleSubmit, but do not reset form or show toasts
+                const selectedOffice = offices.find(o => o.id === parseInt(officeId));
+                if (!selectedOffice || !userData || !appointmentDate || !officeId) throw new Error('Missing data');
+                const appointmentData = {
+                    id: 0,
+                    date: appointmentDate,
+                    durationId: selectedOffice.durationId,
+                    dateTimeFormat: 'yyyy-MM-dd',
+                    noOfApplicants: 1,
+                    officeId: selectedOffice.id,
+                    requestTypeId: 2,
+                    isUrgent: true,
+                    processDays: 2
+                };
+                const appointmentResponse = await submitAppointment(appointmentData);
+                if (!appointmentResponse?.appointmentResponses?.[0]?.id) throw new Error('Invalid appointment response');
+                const appointmentId = appointmentResponse.appointmentResponses[0].id;
+                const requestData = {
+                    requestId: 0,
+                    requestMode: 1,
+                    processDays: 2,
+                    officeId: selectedOffice.id,
+                    deliverySiteId: selectedOffice.deliverySiteId,
+                    requestTypeId: 2,
+                    appointmentIds: [appointmentId],
+                    userName: '',
+                    deliveryDate: '',
+                    status: 0,
+                    confirmationNumber: '',
+                    applicants: [{
                         personId: 0,
-                        addressId: 0,
-                        city: selectedOffice.city,
-                        region: selectedOffice.region,
-                        state: "",
-                        zone: "",
-                        wereda: "",
-                        kebele: "",
-                        street: "",
-                        houseNo: "",
-                        poBox: "0000",
-                        requestPlace: ""
-                    },
-                    familyRequests: []
-                }]
-            };
-
-            console.log('Starting request submission with immediate retry...');
-            const requestResponse = await submitRequestWithRetry(requestData);
-            console.log('Final request result:', requestResponse);
-
-            const requestId = requestResponse.serviceResponseList[0].requestId;
-            setRequestId(requestId.toString());
-            console.log('Successfully got request ID:', requestId);
-
-            // Add delay before payment
-            console.log('Waiting 3 seconds before payment request...');
-            await new Promise(resolve => setTimeout(resolve, 3000));
-
-            // Step 3: Process payment (matching content.js exactly)
-            const paymentData: PaymentRequestData = {
-                FirstName: userData.firstName,
-                LastName: userData.lastName,
-                Email: "",
-                Phone: userData.phone,
-                Amount: 20000,
-                Currency: "ETB",
-                City: "Addis Ababa",
-                Country: "ET",
-                Channel: "Mobile",
-                PaymentOptionsId: 17,
-                requestId: requestId
-            };
-
-            console.log('Payment data:', paymentData);
-            const paymentRes = await fetch('/api/proxy', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({
-                    endpoint: '/Payment/api/V1.0/Payment/OrderRequest',
-                    data: paymentData
-                })
-            });
-
-            const paymentResponse = await paymentRes.json();
-            console.log('Payment response:', paymentResponse);
-
-            if (paymentResponse?.orderId) {
-                setOrderId(paymentResponse.orderId);
-                if (typeof window !== 'undefined' && window.parent) {
-                    window.parent.postMessage({
-                        type: 'orderId',
-                        orderId: paymentResponse.orderId
-                    }, '*');
-                }
-                // Show success notification
-                toast({
-                    title: 'Request submitted successfully!',
-                    description: `Order ID: ${paymentResponse.orderId}`,
-                    status: 'success',
-                    duration: 5000,
-                    isClosable: true,
-                });
-            } else {
-                throw new Error('No order ID received from payment response');
+                        firstName: userData.firstName,
+                        middleName: userData.middleName,
+                        lastName: userData.lastName,
+                        geezFirstName: userData.geezFirstName,
+                        geezMiddleName: userData.geezMiddleName,
+                        geezLastName: userData.geezLastName,
+                        dateOfBirth: userData.birthDate,
+                        gender: +userData.gender,
+                        nationalityId: 1,
+                        height: '',
+                        eyeColor: '',
+                        hairColor: 'Black',
+                        occupationId: null,
+                        birthPlace: userData.birthplace,
+                        birthCertificateId: '',
+                        photoPath: '',
+                        employeeID: '',
+                        applicationNumber: '',
+                        organizationID: '',
+                        isUnder18: false,
+                        isAdoption: false,
+                        passportNumber: '',
+                        isDatacorrected: false,
+                        passportPageId: 1,
+                        correctionType: 0,
+                        maritalStatus: 0,
+                        phoneNumber: userData.phone,
+                        email: userData.email || '',
+                        requestReason: 0,
+                        address: {
+                            personId: 0,
+                            addressId: 0,
+                            city: 'SHASHEMENE',
+                            region: 'Oromia',
+                            state: '',
+                            zone: '',
+                            wereda: '',
+                            kebele: '',
+                            street: '',
+                            houseNo: '',
+                            poBox: '0000',
+                            requestPlace: ''
+                        },
+                        familyRequests: []
+                    }]
+                };
+                const requestResponse = await submitRequest(requestData);
+                if (!requestResponse?.serviceResponseList?.[0]?.requestId) throw new Error('Invalid request response');
+                const paymentData = {
+                    FirstName: userData.firstName,
+                    LastName: userData.lastName,
+                    Email: userData.email || '',
+                    Phone: userData.phone,
+                    Amount: 20000,
+                    Currency: 'ETB',
+                    City: selectedOffice.city,
+                    Country: 'ET',
+                    Channel: 'Mobile',
+                    PaymentOptionsId: 17,
+                    requestId: requestResponse.serviceResponseList[0].requestId
+                };
+                const paymentResponse = await submitPayment(paymentData);
+                if (!paymentResponse?.orderId) throw new Error('No orderId');
+                results.push({ success: true, orderId: paymentResponse.orderId });
+                return { success: true, orderId: paymentResponse.orderId };
+            } catch (error: any) {
+                results.push({ success: false, error: error.message });
+                return { success: false, error: error.message };
             }
-
-            // Reset form
-            setUserData(null);
-            setAppointmentDate('');
-            setOfficeId('24');
-            if (e.target instanceof HTMLFormElement) {
-                e.target.reset();
-            }
-
-        } catch (error: any) {
-            console.error('Submission error:', error);
-            setErrorMessage(error.message || 'An error occurred while processing your request');
-            toast({
-                title: 'Error',
-                description: error.message || 'An error occurred while processing your request',
-                status: 'error',
-                duration: 5000,
-                isClosable: true,
-            });
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    // Function to start auto-clicking
-    const startAutoClicking = (duration: number) => {
-        if (isAutoClicking) return; // Prevent multiple auto-click sessions
-        
-        setIsAutoClicking(true);
-        const submitButton = document.querySelector('button[type="submit"]') as HTMLButtonElement;
-        
-        // Click every 100ms (faster than before)
-        clickIntervalRef.current = setInterval(() => {
-            if (submitButton && !submitButton.disabled) {
-                submitButton.click();
-            }
-        }, 100); // Changed from 500ms to 100ms
-
-        // Stop after specified duration
-        setTimeout(() => {
-            if (clickIntervalRef.current) {
-                clearInterval(clickIntervalRef.current);
-                clickIntervalRef.current = null;
-            }
-            setIsAutoClicking(false);
-        }, duration * 1000);
-    };
-
-    // Function to stop auto-clicking
-    const stopAutoClicking = () => {
-        if (clickIntervalRef.current) {
-            clearInterval(clickIntervalRef.current);
-            clickIntervalRef.current = null;
-        }
-        setIsAutoClicking(false);
-    };
+        });
+        const allResults = await Promise.all(promises);
+        setMultiResults(allResults);
+        setMultiSummary({
+            success: allResults.filter(r => r.success).length,
+            fail: allResults.filter(r => !r.success).length,
+        });
+    }
 
     return (
-        <Container maxW="container.md" py={10}>
+        <Container maxW="container.sm" py={10}>
             <VStack spacing={8} align="stretch">
                 <Box textAlign="center">
                     <Heading as="h1" size="2xl" mb={4}>
-                        Passport Application
+                        Passport Application (Minimal)
                     </Heading>
                     <Text fontSize="lg" color="gray.600">
-                        Upload your JSON file and complete the application process
+                        Upload your JSON file and submit a single passport application request
                     </Text>
                 </Box>
-
-                {/* Status Cards */}
-                {(appointmentId || requestId || orderId) && (
-                    <Card>
-                        <CardBody>
-                            <Stack spacing={4}>
-                                <Heading size="md">Application Status</Heading>
-                                {appointmentId && (
-                                    <Box p={3} bg="green.50" borderRadius="md">
-                                        <Text fontWeight="bold" color="green.600">✓ Appointment Submitted</Text>
-                                        <Text fontSize="sm">ID: {appointmentId}</Text>
-                                    </Box>
-                                )}
-                                {requestId && (
-                                    <Box p={3} bg="green.50" borderRadius="md">
-                                        <Text fontWeight="bold" color="green.600">✓ Request Submitted</Text>
-                                        <Text fontSize="sm">ID: {requestId}</Text>
-                                    </Box>
-                                )}
-                                {orderId && (
-                                    <Box p={3} bg="green.50" borderRadius="md">
-                                        <Text fontWeight="bold" color="green.600">✓ Payment Successful</Text>
-                                        <Text fontSize="sm">Order ID: {orderId}</Text>
-                                    </Box>
-                                )}
-                            </Stack>
-                        </CardBody>
-                    </Card>
-                )}
-
-                {/* Error Alert */}
                 {errorMessage && (
-                    <Alert status="error">
-                        <AlertIcon />
-                        <AlertTitle>Error!</AlertTitle>
-                        <AlertDescription>{errorMessage}</AlertDescription>
-                    </Alert>
+                    <Text color="red.500" fontWeight="bold" mb={2}>{errorMessage}</Text>
                 )}
-
+                {appointmentId && (
+                    <Text color="green.600" fontWeight="bold" mb={1}>Appointment submitted successfully!</Text>
+                )}
+                {requestId && (
+                    <Text color="green.600" fontWeight="bold" mb={1}>Request submitted successfully!</Text>
+                )}
+                {orderId && (
+                    <Text color="green.600" fontWeight="bold" mb={2}>Payment successful!</Text>
+                )}
+                {orderId && (
+                    <Text color="green.600" fontWeight="bold" mb={4}>Order ID: {orderId}</Text>
+                )}
                 <Card>
-                    <CardBody>
+                    <form onSubmit={handleSubmit}>
                         <VStack spacing={6} align="stretch">
                             <FormControl isRequired>
                                 <FormLabel>User Data (JSON File)</FormLabel>
@@ -439,7 +190,6 @@ export default function Home() {
                                     Upload a JSON file containing user information
                                 </Text>
                             </FormControl>
-
                             <FormControl isRequired>
                                 <FormLabel>Office Location</FormLabel>
                                 <Select
@@ -453,7 +203,6 @@ export default function Home() {
                                     ))}
                                 </Select>
                             </FormControl>
-
                             <FormControl isRequired>
                                 <FormLabel>Appointment Date</FormLabel>
                                 <Input
@@ -462,11 +211,9 @@ export default function Home() {
                                     onChange={(e) => setAppointmentDate(e.target.value)}
                                 />
                             </FormControl>
-
                             {userData && (
                                 <Box>
                                     <Heading size="sm" mb={2}>User Information Preview</Heading>
-                                    <Stack divider={<StackDivider />} spacing={2}>
                                         <Text fontSize="sm">
                                             Name: {userData.firstName} {userData.middleName} {userData.lastName}
                                         </Text>
@@ -490,55 +237,41 @@ export default function Home() {
                                                 Email: {userData.email}
                                             </Text>
                                         )}
-                                    </Stack>
                                 </Box>
                             )}
-
-                            {/* Auto-click buttons */}
-                            <div className="flex gap-4 justify-center mb-4">
+                            <Divider />
                                 <Button
-                                    colorScheme="green"
-                                    onClick={() => startAutoClicking(5)}
-                                    isDisabled={isAutoClicking || !userData || !appointmentDate || !officeId}
-                                >
-                                    Auto Click (5s)
-                                </Button>
-                                <Button
+                                    type="submit"
                                     colorScheme="blue"
-                                    onClick={() => startAutoClicking(10)}
-                                    isDisabled={isAutoClicking || !userData || !appointmentDate || !officeId}
+                                    size="lg"
                                 >
-                                    Auto Click (10s)
+                                    Submit Single Request
                                 </Button>
-                                <Button
-                                    colorScheme="purple"
-                                    onClick={() => startAutoClicking(15)}
-                                    isDisabled={isAutoClicking || !userData || !appointmentDate || !officeId}
-                                >
-                                    Auto Click (15s)
-                                </Button>
-                                {isAutoClicking && (
-                                    <Button
-                                        colorScheme="red"
-                                        onClick={stopAutoClicking}
-                                    >
-                                        Stop Auto Click
-                                    </Button>
-                                )}
-                            </div>
-
-                            <Button
-                                type="submit"
-                                colorScheme="blue"
-                                size="lg"
-                                onClick={handleSubmit}
-                                isDisabled={!userData || !appointmentDate || !officeId}
-                            >
-                                Submit Application
-                            </Button>
                         </VStack>
-                    </CardBody>
+                    </form>
                 </Card>
+                <Box>
+                    <FormControl>
+                        <FormLabel>Number of Requests</FormLabel>
+                        <Input type="number" min={1} max={100} value={multiCount} onChange={e => setMultiCount(Number(e.target.value))} w="120px" />
+                    </FormControl>
+                    <Button mt={2} colorScheme="purple" onClick={handleMultipleRequests}>
+                        Send Multiple Requests
+                    </Button>
+                    {(multiResults.length > 0) && (
+                        <Box mt={2}>
+                            <Text>Success: {multiSummary.success} / Fail: {multiSummary.fail}</Text>
+                            {multiResults.filter(r => r.success && r.orderId).length > 0 && (
+                                <Box mt={2}>
+                                    <Text fontWeight="bold">Order IDs:</Text>
+                                    {multiResults.filter(r => r.success && r.orderId).map((r, idx) => (
+                                        <Text key={idx} fontSize="sm">{r.orderId}</Text>
+                                    ))}
+                                </Box>
+                            )}
+                        </Box>
+                    )}
+                </Box>
             </VStack>
         </Container>
     );
